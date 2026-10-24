@@ -49,7 +49,7 @@ Requirements: Node.js 20.6 or newer, a free [PayPal developer](https://developer
 
 ## Deploy on Render
 
-The repo includes `render.yaml`. Create a new Blueprint on Render from this repo and set `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` and `GEMINI_API_KEY`. The approval queue is stored in a JSON file, so on Render's free tier it resets when the service restarts. That is fine for a demo.
+Live demo:[https://paypilot-w3f7.onrender.com]
 
 ## Project layout
 
