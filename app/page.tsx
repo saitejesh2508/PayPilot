@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import ForecastChart from "@/components/ForecastChart";
+import PayQR from "@/components/PayQR";
 
 const InvoiceGrid = dynamic(() => import("@/components/InvoiceGrid"), { ssr: false, loading: () => <div className="empty">Loading grid…</div> });
 
@@ -12,12 +13,14 @@ const SUGGESTIONS = [
   "Which client is the biggest risk and why?",
   "How much cash should I expect in the next 30 days?",
   "Draft a $1,500 invoice for Northwind Studio for a website update",
+  "Give me payment links for every overdue invoice",
 ];
 
 const stepLabel: Record<string, string> = {
   list_invoices: "read invoices",
   client_risk: "scored client risk",
   cashflow_forecast: "ran cash forecast",
+  get_payment_link: "fetched payment link",
   propose_reminder: "proposed a reminder",
   propose_invoice: "proposed an invoice",
 };
@@ -141,6 +144,15 @@ export default function Home() {
                 <div className="sum">{a.summary}</div>
                 {a.reasoning && <div className="why">Why: {a.reasoning}</div>}
                 {a.type === "send_reminder" && <div className="note"><strong>{a.params.subject}</strong>{"\n"}{a.params.note}</div>}
+                {a.type === "send_reminder" && a.params.payUrl && (
+                  <div className="payrow">
+                    <PayQR url={a.params.payUrl} />
+                    <div>
+                      <div className="paylabel">Pay link included. The client can scan or click to pay.</div>
+                      <a href={a.params.payUrl} target="_blank" rel="noreferrer">Open payment page</a>
+                    </div>
+                  </div>
+                )}
                 <div className="row">
                   <button className="btn primary" disabled={deciding === a.id} onClick={() => decide(a.id, "approve")}>{deciding === a.id ? "Sending…" : "Approve and send"}</button>
                   <button className="btn danger" disabled={deciding === a.id} onClick={() => decide(a.id, "reject")}>Reject</button>

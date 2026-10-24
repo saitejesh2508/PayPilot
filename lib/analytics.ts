@@ -15,6 +15,7 @@ export type Inv = {
   paid: boolean;
   daysOverdue: number;
   daysLate: number | null; // paid date minus due date (negative = early)
+  payUrl: string; // payer-facing PayPal page for this invoice
 };
 
 const DAY = 86400000;
@@ -45,6 +46,10 @@ export function normalize(raw: any): Inv | null {
   const dates: string[] = (raw.payments?.transactions || []).map((t: any) => t.payment_date).filter(Boolean).sort();
   const paidDate = paid ? dates[dates.length - 1] || null : null;
   const today = todayStr();
+  const host = String(process.env.PAYPAL_BASE_URL || "").includes("sandbox") || !process.env.PAYPAL_BASE_URL ? "www.sandbox.paypal.com" : "www.paypal.com";
+  const payUrl: string =
+    detail.metadata?.recipient_view_url ||
+    (String(raw.id).startsWith("INV2-") ? `https://${host}/invoice/p/#${String(raw.id).slice(5)}` : "");
   return {
     id: raw.id,
     number: detail.invoice_number || raw.id,
@@ -61,6 +66,7 @@ export function normalize(raw: any): Inv | null {
     paid,
     daysOverdue: open && dueDate < today ? diffDays(today, dueDate) : 0,
     daysLate: paid && paidDate ? diffDays(paidDate, dueDate) : null,
+    payUrl,
   };
 }
 

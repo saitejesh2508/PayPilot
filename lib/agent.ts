@@ -1,7 +1,7 @@
 // The PayPilot agent: Gemini function calling over PayPal invoice data.
 // Read tools run immediately. Money-moving tools only create PROPOSALS that a human must approve.
 import { getOverview } from "./data";
-import { addAction, addAudit, hasPendingForInvoice } from "./store";
+import { addAction, addAudit, hasPendingForInvoice, daysSinceReminder } from "./store";
 
 const SYSTEM = `You are PayPilot, an accounts-receivable agent for a freelancer or small business that invoices clients through PayPal.
 Rules:
@@ -10,7 +10,9 @@ Rules:
 - Choose reminder tone by severity: friendly for 1-7 days overdue or low-risk clients, firm for 8-21 days or medium risk, final for 22+ days or high risk.
 - Write the reminder note yourself: short, polite, specific (invoice number, amount, due date), and ask for payment or a reply. No threats.
 - Keep answers short and concrete. Lead with the answer. Use plain text, no markdown tables.
-- Amounts are in the invoice currency.`;
+- Amounts are in the invoice currency.
+- When asked how a client can pay, or for payment links, use get_payment_link. Every reminder you propose automatically includes the invoice's PayPal pay link.
+- If propose_reminder says an invoice was reminded recently or already has a pending reminder, skip it and mention that briefly.`;
 
 const TOOLS = [
   {
@@ -35,6 +37,15 @@ const TOOLS = [
         name: "cashflow_forecast",
         description: "Expected cash collected over the next 30 days (risk-weighted) versus if every client paid on time.",
         parameters: { type: "OBJECT", properties: {} },
+      },
+      {
+        name: "get_payment_link",
+        description: "Get the PayPal payment link a client can use to pay an unpaid invoice.",
+        parameters: {
+          type: "OBJECT",
+          properties: { invoice_number: { type: "STRING", description: "the invoice number, e.g. 0007" } },
+          required: ["invoice_number"],
+        },
       },
       {
         name: "propose_reminder",
@@ -93,11 +104,19 @@ async function runTool(name: string, args: any, source: "chat" | "morning"): Pro
     const pick = [0, 7, 14, 21, 30].map((d) => f[d]).filter(Boolean);
     return { points: pick, expectedIn30Days: ov.kpis.expected30, outstanding: ov.kpis.outstanding, overdue: ov.kpis.overdue };
   }
+  if (name === "get_payment_link") {
+    const inv = (ov.invoices as any[]).find((i) => String(i.number) === String(args.invoice_number) || i.id === args.invoice_number);
+    if (!inv) return { error: `No invoice with number ${args.invoice_number}` };
+    if (!inv.open) return { error: `Invoice ${inv.number} is not unpaid (status ${inv.status})` };
+    return { invoice: inv.number, client: inv.client, amountDue: inv.due, currency: inv.currency, payUrl: inv.payUrl };
+  }
   if (name === "propose_reminder") {
     const inv = (ov.invoices as any[]).find((i) => String(i.number) === String(args.invoice_number) || i.id === args.invoice_number);
     if (!inv) return { error: `No invoice with number ${args.invoice_number}` };
     if (!inv.open) return { error: `Invoice ${inv.number} is not unpaid (status ${inv.status})` };
     if (hasPendingForInvoice(inv.id)) return { error: `A reminder for invoice ${inv.number} is already waiting for approval` };
+    const since = daysSinceReminder(inv.id);
+    if (since !== null && since < 3) return { error: `Invoice ${inv.number} was already reminded ${since} day(s) ago. Skip it for now.` };
     const tone = ["friendly", "firm", "final"].includes(args.tone) ? args.tone : "friendly";
     const subject =
       tone === "final" ? `Final notice: invoice ${inv.number}` : tone === "firm" ? `Payment overdue: invoice ${inv.number}` : `Friendly reminder: invoice ${inv.number}`;
@@ -106,7 +125,11 @@ async function runTool(name: string, args: any, source: "chat" | "morning"): Pro
       source,
       summary: `Send ${tone} reminder to ${inv.client} for invoice ${inv.number} (${fmt(inv.due, inv.currency)}, ${inv.daysOverdue} days overdue)`,
       reasoning: String(args.reasoning || ""),
-      params: { invoiceId: inv.id, number: inv.number, client: inv.client, tone, subject, note: String(args.note || "").slice(0, 900) },
+      params: {
+        invoiceId: inv.id, number: inv.number, client: inv.client, tone, subject,
+        note: String(args.note || "").slice(0, 800) + (inv.payUrl ? `\n\nPay securely online: ${inv.payUrl}` : ""),
+        payUrl: inv.payUrl,
+      },
     });
     return { proposed: true, actionId: a.id, awaiting: "owner approval" };
   }

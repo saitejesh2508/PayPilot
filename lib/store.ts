@@ -67,3 +67,12 @@ export function updateAction(id: string, patch: Partial<Action>): Action | null 
 export function hasPendingForInvoice(invoiceId: string): boolean {
   return read().actions.some((a) => a.status === "pending" && a.type === "send_reminder" && a.params?.invoiceId === invoiceId);
 }
+
+// Days since the last APPROVED reminder for this invoice (null = never reminded).
+export function daysSinceReminder(invoiceId: string): number | null {
+  const last = read()
+    .actions.filter((a) => a.type === "send_reminder" && a.status === "approved" && a.params?.invoiceId === invoiceId && a.decidedAt)
+    .sort((x, y) => String(y.decidedAt).localeCompare(String(x.decidedAt)))[0];
+  if (!last) return null;
+  return Math.floor((Date.now() - new Date(last.decidedAt as string).getTime()) / 86400000);
+}
